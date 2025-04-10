@@ -34,11 +34,15 @@ def decrypt_crypt14(key_path, crypt_path, output_path):
     with open(crypt_path, 'rb') as f:
         data = f.read()
 
-    iv = data[51:67]
-    encrypted = data[67:]
+    iv = data[51:67]                    # 16 bytes IV
+    encrypted = data[67:-16]            # Everything except the last 16 bytes
+    auth_tag = data[-16:]               # Last 16 bytes = auth tag
 
     cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-    decrypted = cipher.decrypt(encrypted)
+    try:
+        decrypted = cipher.decrypt_and_verify(encrypted, auth_tag)
+    except ValueError as e:
+        raise Exception("Authentication failed: " + str(e))
 
     with open(output_path, 'wb') as out:
         out.write(decrypted)
