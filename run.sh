@@ -11,6 +11,10 @@ pkg update -y && pkg upgrade -y
 echo -e "${GREEN}🐍 Installing Python...${NC}"
 pkg install -y python git
 
+echo -e "${GREEN}📁 Creating Virtual Environment...${NC}"
+python -m venv venv
+source venv/bin/activate
+
 echo -e "${GREEN}📦 Installing Python dependencies...${NC}"
 pip install --upgrade pip
 pip install pycryptodome tqdm rich
