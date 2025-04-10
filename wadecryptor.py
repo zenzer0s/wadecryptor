@@ -8,10 +8,11 @@ from rich.console import Console
 console = Console()
 
 # === Paths ===
-KEY_PATH = "/storage/emulated/0/Android/data/com.whatsapp/files/key"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+KEY_PATH = os.path.join(SCRIPT_DIR, "key")
 CRYPT_FILE = "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt14"
-OUTPUT_SQLITE = "/storage/emulated/0/msgstore_decrypted.db"
-OUTPUT_MD_DIR = "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases/markdown"
+OUTPUT_SQLITE = "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases/msgstore_decrypted.db"
+OUTPUT_MD_DIR = os.path.expanduser("~/storage/shared/wadecryptor_output")
 
 os.makedirs(OUTPUT_MD_DIR, exist_ok=True)
 
@@ -23,20 +24,24 @@ def decrypting_animation():
 
 # === AES Decryption Function ===
 def decrypt_crypt14(key_file, crypt_file, output_file):
-    with open(key_file, 'rb') as kf:
-        key = kf.read()
+    try:
+        with open(key_file, 'rb') as kf:
+            key = kf.read()
 
-    with open(crypt_file, 'rb') as f:
-        data = f.read()
+        with open(crypt_file, 'rb') as f:
+            data = f.read()
 
-    iv = data[51:67]
-    encrypted = data[67:]
+        iv = data[51:67]
+        encrypted = data[67:]
 
-    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-    decrypted = cipher.decrypt(encrypted)
+        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+        decrypted = cipher.decrypt(encrypted)
 
-    with open(output_file, 'wb') as out:
-        out.write(decrypted)
+        with open(output_file, 'wb') as out:
+            out.write(decrypted)
+    except Exception as e:
+        console.print(f"[red]❌ Decryption error: {str(e)}")
+        raise
 
 # === Convert Tables to Markdown ===
 def export_all_tables_to_md(db_path, output_dir):
