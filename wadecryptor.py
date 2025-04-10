@@ -56,6 +56,22 @@ def process_decrypted_data(decrypted_data, output_path):
                 return True
         except Exception as e:
             console.print(f"[yellow]Not zlib compressed: {e}")
+            
+        # Try LZ4 compression (used by some newer WhatsApp versions)
+        console.print("[yellow]Attempting LZ4 decompression...")
+        try:
+            # Try to import lz4.frame - pip install lz4
+            import lz4.frame
+            decompressed = lz4.frame.decompress(decrypted_data)
+            if decompressed.startswith(b'SQLite format 3\x00'):
+                console.print("[green]Successfully decompressed LZ4 data to SQLite")
+                with open(output_path, 'wb') as out:
+                    out.write(decompressed)
+                return True
+        except ImportError:
+            console.print("[yellow]LZ4 library not installed. Run 'pip install lz4' to enable LZ4 support")
+        except Exception as e:
+            console.print(f"[yellow]Not LZ4 compressed: {e}")
         
         # Try to identify the format from the first bytes
         header_hex = binascii.hexlify(decrypted_data[:16]).decode()
@@ -67,17 +83,22 @@ def process_decrypted_data(decrypted_data, output_path):
             out.write(decrypted_data)
         console.print(f"[yellow]Saved raw decrypted data to: {raw_output}")
         
-        # Create a simple hex viewer output for easier inspection
+        # Create a more detailed hex viewer output
         hex_output = output_path + ".hex"
         with open(hex_output, 'w') as out:
-            # Write first 1024 bytes as hex dump
-            for i in range(0, min(1024, len(decrypted_data)), 16):
+            # Write header
+            out.write("Decrypted WhatsApp Database Hex Dump\n")
+            out.write("=====================================\n\n")
+            
+            # Write first 2048 bytes as hex dump for more context
+            for i in range(0, min(2048, len(decrypted_data)), 16):
                 line = decrypted_data[i:i+16]
                 hex_line = ' '.join(f'{b:02x}' for b in line)
                 ascii_line = ''.join(chr(b) if 32 <= b <= 126 else '.' for b in line)
                 out.write(f"{i:08x}: {hex_line:<48} |{ascii_line}|\n")
         
-        console.print(f"[yellow]Saved hex dump to: {hex_output}")
+        console.print(f"[yellow]Saved detailed hex dump to: {hex_output}")
+        console.print("[yellow]To install LZ4 support: run 'pip install lz4' and try again")
         return False
         
     except Exception as e:
