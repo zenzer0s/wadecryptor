@@ -7,25 +7,26 @@ NC='\033[0m'
 
 echo -e "${GREEN}📦 Updating Termux...${NC}"
 pkg update -y && pkg upgrade -y
-
-echo -e "${GREEN}🐍 Installing Python...${NC}"
 pkg install -y python git
 
-echo -e "${GREEN}📁 Creating Virtual Environment...${NC}"
+echo -e "${GREEN}🐍 Setting up virtual environment...${NC}"
 python -m venv venv
-source venv/bin/activate
 
-echo -e "${GREEN}📦 Installing Python dependencies...${NC}"
+# Full python path
+PYTHON_BIN="$(pwd)/venv/bin/python"
+
+echo -e "${GREEN}📦 Installing dependencies...${NC}"
+source venv/bin/activate
 pip install --upgrade pip
 pip install pycryptodome tqdm rich
 
-# === Check if Python script exists ===
 SCRIPT="wadecryptor.py"
 if [ ! -f "$SCRIPT" ]; then
   echo -e "${RED}❌ Error: ${SCRIPT} not found in $(pwd)"
-  echo -e "📎 Please make sure your Git repo includes '${SCRIPT}'"
   exit 1
 fi
 
-echo -e "${GREEN}🚀 Running $SCRIPT...${NC}"
-python "$SCRIPT"
+echo -e "${GREEN}🚀 Running with root via su...${NC}"
+
+# Run the Python script inside root shell with full path
+su -c "$PYTHON_BIN $(pwd)/$SCRIPT"
