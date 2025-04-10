@@ -4,6 +4,9 @@ import time
 from tqdm import tqdm
 from Crypto.Cipher import AES
 from rich.console import Console
+import zlib
+import binascii
+import struct
 
 console = Console()
 
@@ -27,9 +30,59 @@ def load_key(key_path):
     with open(key_path, 'rb') as f:
         raw = f.read()
         if len(raw) >= 32:
-            return raw[:32]  # Take first 32 bytes instead of last 32
+            return raw[-32:]  # Take first 32 bytes instead of last 32
         else:
             raise ValueError(f"Key file too small: {len(raw)} bytes")
+
+# === Process decrypted data function ===
+def process_decrypted_data(decrypted_data, output_path):
+    """Process potentially compressed or encoded data after decryption"""
+    try:
+        # Check if data is a SQLite database
+        if decrypted_data.startswith(b'SQLite format 3\x00'):
+            console.print("[green]Detected SQLite format - no additional processing needed")
+            with open(output_path, 'wb') as out:
+                out.write(decrypted_data)
+            return True
+            
+        # Try to decompress with zlib (common compression method)
+        console.print("[yellow]Attempting zlib decompression...")
+        try:
+            decompressed = zlib.decompress(decrypted_data)
+            if decompressed.startswith(b'SQLite format 3\x00'):
+                console.print("[green]Successfully decompressed zlib data to SQLite")
+                with open(output_path, 'wb') as out:
+                    out.write(decompressed)
+                return True
+        except Exception as e:
+            console.print(f"[yellow]Not zlib compressed: {e}")
+        
+        # Try to identify the format from the first bytes
+        header_hex = binascii.hexlify(decrypted_data[:16]).decode()
+        console.print(f"[yellow]Unknown format with header: {header_hex}")
+        
+        # Save the raw decrypted data for manual analysis
+        raw_output = output_path + ".raw"
+        with open(raw_output, 'wb') as out:
+            out.write(decrypted_data)
+        console.print(f"[yellow]Saved raw decrypted data to: {raw_output}")
+        
+        # Create a simple hex viewer output for easier inspection
+        hex_output = output_path + ".hex"
+        with open(hex_output, 'w') as out:
+            # Write first 1024 bytes as hex dump
+            for i in range(0, min(1024, len(decrypted_data)), 16):
+                line = decrypted_data[i:i+16]
+                hex_line = ' '.join(f'{b:02x}' for b in line)
+                ascii_line = ''.join(chr(b) if 32 <= b <= 126 else '.' for b in line)
+                out.write(f"{i:08x}: {hex_line:<48} |{ascii_line}|\n")
+        
+        console.print(f"[yellow]Saved hex dump to: {hex_output}")
+        return False
+        
+    except Exception as e:
+        console.print(f"[red]Error processing decrypted data: {e}")
+        return False
 
 # === AES Decryption Function ===
 def decrypt_crypt14(key_path, crypt_path, output_path):
@@ -78,12 +131,13 @@ def decrypt_crypt14(key_path, crypt_path, output_path):
                 # Decrypt without auth tag validation
                 decrypted = cipher.decrypt(encrypted)
                 
-                # Save the result regardless of format
-                with open(output_path, 'wb') as out:
-                    out.write(decrypted)
-                
                 console.print(f"[green]✅ Successfully decrypted {len(decrypted)} bytes")
                 console.print(f"[cyan]First 32 bytes: {decrypted[:32].hex()}")
+                
+                # Process the decrypted data
+                success = process_decrypted_data(decrypted, output_path)
+                if not success:
+                    console.print("[yellow]Warning: Data was decrypted but isn't a standard SQLite database")
                 
                 # Return even if not valid SQLite - might be another format
                 return True
@@ -209,17 +263,24 @@ def main():
     decrypting_animation()
 
     try:
-        decrypt_crypt14(KEY_PATH, CRYPT_FILE, OUTPUT_SQLITE)
+        success = decrypt_crypt14(KEY_PATH, CRYPT_FILE, OUTPUT_SQLITE)
         console.print(f"[green]✅ Decryption complete:\n{OUTPUT_SQLITE}")
+        
+        # Only try to export if the output is a SQLite database
+        if os.path.exists(OUTPUT_SQLITE):
+            with open(OUTPUT_SQLITE, 'rb') as f:
+                if f.read(16).startswith(b'SQLite format 3\x00'):
+                    try:
+                        export_all_tables_to_md(OUTPUT_SQLITE, OUTPUT_MD_DIR)
+                        console.print(f"[bold green]\n✅ All tables exported to Markdown in:\n{OUTPUT_MD_DIR}")
+                    except Exception as e:
+                        console.print(f"[red]❌ Failed to export Markdown: {e}")
+                else:
+                    console.print("[yellow]⚠️ Skipping Markdown export - decrypted file is not a SQLite database")
+                    console.print("[yellow]Check the .raw and .hex files for further analysis")
     except Exception as e:
         console.print(f"[red]❌ Failed to decrypt: {e}")
         return
-
-    try:
-        export_all_tables_to_md(OUTPUT_SQLITE, OUTPUT_MD_DIR)
-        console.print(f"[bold green]\n✅ All tables exported to Markdown in:\n{OUTPUT_MD_DIR}")
-    except Exception as e:
-        console.print(f"[red]❌ Failed to export Markdown: {e}")
 
 if __name__ == "__main__":
     main()
