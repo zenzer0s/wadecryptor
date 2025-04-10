@@ -34,18 +34,28 @@ def decrypt_crypt14(key_path, crypt_path, output_path):
     with open(crypt_path, 'rb') as f:
         data = f.read()
 
-    iv = data[51:67]                    # 16 bytes IV
-    encrypted = data[67:-16]            # Everything except the last 16 bytes
-    auth_tag = data[-16:]               # Last 16 bytes = auth tag
+    header_size = 51  # WhatsApp database header
+    iv = data[header_size:header_size + 16]  # 16 bytes IV
+    encrypted = data[header_size + 16:-16]    # Encrypted SQLite data
+    auth_tag = data[-16:]                     # Authentication tag
 
     cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
     try:
+        # Add header verification
+        if data[:4] != b'SQLi':  # Check for SQLite format after decryption
+            raise ValueError("Invalid WhatsApp database format")
+            
         decrypted = cipher.decrypt_and_verify(encrypted, auth_tag)
+        
+        # Verify SQLite header in decrypted data
+        if decrypted[:16].startswith(b'SQLite format 3'):
+            with open(output_path, 'wb') as out:
+                out.write(decrypted)
+        else:
+            raise ValueError("Decrypted file is not a valid SQLite database")
+            
     except ValueError as e:
-        raise Exception("Authentication failed: " + str(e))
-
-    with open(output_path, 'wb') as out:
-        out.write(decrypted)
+        raise Exception(f"Decryption failed: {str(e)}")
 
 # === Convert Tables to Markdown ===
 def export_all_tables_to_md(db_path, output_dir):
