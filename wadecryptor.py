@@ -34,39 +34,81 @@ def load_key(key_path):
 # === AES Decryption Function ===
 def decrypt_crypt14(key_path, crypt_path, output_path):
     try:
+        # Load key
         key = load_key(key_path)
         console.print(f"[cyan]Key loaded: {len(key)} bytes")
         
+        # Read encrypted database
         with open(crypt_path, 'rb') as f:
             data = f.read()
-            
+        
         console.print(f"[cyan]Database file size: {len(data)} bytes")
         
-        if len(data) < 67:
-            raise ValueError(f"File too small: {len(data)} bytes")
-            
-        # Crypt14 header is 67 bytes (IV is at offset 51-67)
-        iv = data[51:67]
-        encrypted = data[67:-16]  # Encrypted data without auth tag
-        auth_tag = data[-16:]     # Last 16 bytes are the auth tag
-            
-        console.print(f"[cyan]IV length: {len(iv)}, Auth tag length: {len(auth_tag)}")
+        # Header analysis
+        file_magic = data[:8]
+        console.print(f"[cyan]File magic: {file_magic.hex()}")
         
-        # Create cipher with key and IV
-        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+        # Different offsets for IV and data based on crypt12/crypt14 format
+        # Try different formats (crypt12, crypt14, crypt15)
+        success = False
         
-        # Decrypt without verification first
-        decrypted = cipher.decrypt(encrypted)
+        # Try different offsets for IV and auth tag
+        possible_configs = [
+            # format: (header_size, iv_start, iv_length, has_auth_tag)
+            (67, 51, 16, True),    # Standard crypt14
+            (67, 51, 16, False),   # crypt14 without auth_tag
+            (67, 0, 16, True),     # Try IV at beginning of header
+            (34, 18, 16, True),    # Try shorter header
+            (128, 112, 16, True),  # Try longer header
+        ]
         
-        # Check if it looks like SQLite
-        if not decrypted.startswith(b'SQLite format 3\x00'):
-            raise ValueError("Not a valid SQLite database after decryption")
+        for config in possible_configs:
+            header_size, iv_start, iv_length, has_auth_tag = config
             
-        # Write decrypted database
-        with open(output_path, 'wb') as out:
-            out.write(decrypted)
+            console.print(f"[yellow]Trying config: header={header_size}, iv_start={iv_start}")
             
-        console.print(f"[green]Successfully decrypted {len(decrypted)} bytes")
+            # Check if file is large enough
+            if len(data) < header_size + iv_length + 16:
+                console.print("[yellow]File too small for this config, skipping")
+                continue
+                
+            # Extract IV
+            iv = data[iv_start:iv_start+iv_length]
+            
+            # Get encrypted data and auth tag
+            if has_auth_tag:
+                encrypted = data[header_size:-16]
+                auth_tag = data[-16:]
+            else:
+                encrypted = data[header_size:]
+                auth_tag = None
+                
+            # Try decryption
+            cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+            try:
+                # Decrypt without auth tag verification
+                decrypted = cipher.decrypt(encrypted)
+                
+                # Save the result
+                with open(output_path, 'wb') as out:
+                    out.write(decrypted)
+                
+                # Check if it looks like SQLite
+                if decrypted.startswith(b'SQLite format 3\x00'):
+                    console.print(f"[green]✅ Successfully decrypted with config {config}")
+                    success = True
+                    break
+                else:
+                    console.print(f"[yellow]⚠️ Decryption produced non-SQLite data with config {config}")
+                    console.print(f"[yellow]First 16 bytes: {decrypted[:16].hex()}")
+            
+            except Exception as e:
+                console.print(f"[yellow]Failed with config {config}: {str(e)}")
+                continue
+        
+        if not success:
+            raise ValueError("Failed to decrypt database with any config")
+            
         return True
                 
     except Exception as e:
