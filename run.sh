@@ -39,7 +39,7 @@ MARKDOWN_DIR="$DB_DEST/markdown"
 echo -e "${GREEN}🔐 Copying WhatsApp key...${NC}"
 
 if [ ! -f "$KEY_DEST" ]; then
-  su -c "dd if='$KEY_SOURCE' of='$KEY_DEST' bs=1 count=32 status=none"
+  su -c "dd if='$KEY_SOURCE' of='$KEY_DEST' status=none"
   [ -f "$KEY_DEST" ] && echo -e "${GREEN}✅ Key extracted!${NC}" || { echo -e "${RED}❌ Failed to extract key.${NC}"; exit 1; }
 else
   echo -e "${GREEN}✅ Key already exists.${NC}"
