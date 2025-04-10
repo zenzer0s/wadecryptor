@@ -8,10 +8,11 @@ from rich.console import Console
 console = Console()
 
 # === Paths ===
-KEY_PATH = "/storage/emulated/0/Android/data/com.whatsapp/files/key"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+KEY_PATH = os.path.join(SCRIPT_DIR, "key")  # Use local key file
 CRYPT_FILE = "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt14"
 OUTPUT_SQLITE = "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases/msgstore_decrypted.db"
-OUTPUT_MD_DIR = "/storage/emulated/0/markdown"
+OUTPUT_MD_DIR = os.path.expanduser("~/storage/shared/wadecryptor_output")
 
 os.makedirs(OUTPUT_MD_DIR, exist_ok=True)
 
@@ -25,39 +26,51 @@ def decrypting_animation():
 def load_key(key_path):
     with open(key_path, 'rb') as f:
         raw = f.read()
-        return raw[-32:]  # Ensure correct 256-bit AES key
+        if len(raw) >= 32:
+            return raw[:32]  # Take first 32 bytes instead of last 32
+        else:
+            raise ValueError(f"Key file too small: {len(raw)} bytes")
 
 # === AES Decryption Function ===
 def decrypt_crypt14(key_path, crypt_path, output_path):
-    key = load_key(key_path)
-
-    with open(crypt_path, 'rb') as f:
-        data = f.read()
-        
-    if len(data) < 67:
-        raise ValueError("File too small to be a valid WhatsApp database")
-
-    # WhatsApp .crypt14 structure:
-    # [Header(67)][Encrypted SQLite data][Auth tag(16)]
-    iv = data[51:67]
-    encrypted = data[67:-16]
-    auth_tag = data[-16:]
-
     try:
-        # Decrypt the database
+        key = load_key(key_path)
+        console.print(f"[cyan]Key loaded: {len(key)} bytes")
+        
+        with open(crypt_path, 'rb') as f:
+            data = f.read()
+            
+        console.print(f"[cyan]Database file size: {len(data)} bytes")
+        
+        if len(data) < 67:
+            raise ValueError(f"File too small: {len(data)} bytes")
+            
+        # Crypt14 header is 67 bytes (IV is at offset 51-67)
+        iv = data[51:67]
+        encrypted = data[67:-16]  # Encrypted data without auth tag
+        auth_tag = data[-16:]     # Last 16 bytes are the auth tag
+            
+        console.print(f"[cyan]IV length: {len(iv)}, Auth tag length: {len(auth_tag)}")
+        
+        # Create cipher with key and IV
         cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-        decrypted = cipher.decrypt_and_verify(encrypted, auth_tag)
         
-        # Verify decrypted data starts with SQLite header
+        # Decrypt without verification first
+        decrypted = cipher.decrypt(encrypted)
+        
+        # Check if it looks like SQLite
         if not decrypted.startswith(b'SQLite format 3\x00'):
-            raise ValueError("Decryption failed: Invalid database format")
-        
+            raise ValueError("Not a valid SQLite database after decryption")
+            
         # Write decrypted database
         with open(output_path, 'wb') as out:
             out.write(decrypted)
+            
+        console.print(f"[green]Successfully decrypted {len(decrypted)} bytes")
+        return True
                 
-    except (ValueError, KeyError) as e:
-        raise Exception(f"Decryption failed: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Decryption error: {str(e)}")
 
 # === Convert Tables to Markdown ===
 def export_all_tables_to_md(db_path, output_dir):
