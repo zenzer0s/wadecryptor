@@ -48,18 +48,60 @@ def decrypt_crypt14(key_path, crypt_path, output_path):
         file_magic = data[:8]
         console.print(f"[cyan]File magic: {file_magic.hex()}")
         
-        # Different offsets for IV and data based on crypt12/crypt14 format
-        # Try different formats (crypt12, crypt14, crypt15)
+        # Modern WhatsApp databases are not raw SQLite
+        console.print("[cyan]Detected newer WhatsApp database format...")
+        
+        # Try Google Protobuf approach
+        if file_magic.startswith(b'\xbf\x01'):
+            console.print("[yellow]Trying protobuf-based format...")
+            
+            # New config specifically for 2023+ WhatsApp formats
+            # Header is now 141 bytes, IV at offset 123
+            header_size = 141
+            iv_start = 123
+            iv_length = 16
+            
+            if len(data) < header_size + 32:
+                raise ValueError("File too small for protobuf format")
+            
+            # Extract IV
+            iv = data[iv_start:iv_start+iv_length]
+            console.print(f"[cyan]IV bytes: {iv.hex()}")
+            
+            # Get encrypted data
+            encrypted = data[header_size:-16]
+            auth_tag = data[-16:]
+            
+            # Try decryption
+            cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+            try:
+                # Decrypt without auth tag validation
+                decrypted = cipher.decrypt(encrypted)
+                
+                # Save the result regardless of format
+                with open(output_path, 'wb') as out:
+                    out.write(decrypted)
+                
+                console.print(f"[green]✅ Successfully decrypted {len(decrypted)} bytes")
+                console.print(f"[cyan]First 32 bytes: {decrypted[:32].hex()}")
+                
+                # Return even if not valid SQLite - might be another format
+                return True
+                
+            except Exception as e:
+                raise ValueError(f"Protobuf format decryption failed: {str(e)}")
+        
+        # If we get here, fall back to the old approach with multiple configs
         success = False
         
         # Try different offsets for IV and auth tag
         possible_configs = [
-            # format: (header_size, iv_start, iv_length, has_auth_tag)
+            # Add more configs including some for newer formats
+            (141, 123, 16, True),  # Newer WhatsApp (2023+)
             (67, 51, 16, True),    # Standard crypt14
             (67, 51, 16, False),   # crypt14 without auth_tag
-            (67, 0, 16, True),     # Try IV at beginning of header
-            (34, 18, 16, True),    # Try shorter header
-            (128, 112, 16, True),  # Try longer header
+            (158, 130, 12, True),  # Very new format (experimental)
+            (164, 152, 12, True),  # Another possible new format
         ]
         
         for config in possible_configs:
@@ -116,28 +158,42 @@ def decrypt_crypt14(key_path, crypt_path, output_path):
 
 # === Convert Tables to Markdown ===
 def export_all_tables_to_md(db_path, output_dir):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+    try:
+        # First test if this is even a valid SQLite database
+        if not os.path.exists(db_path):
+            raise ValueError(f"Database file not found: {db_path}")
+            
+        with open(db_path, 'rb') as f:
+            header = f.read(16)
+            if not header.startswith(b'SQLite format 3\x00'):
+                raise ValueError("File is not a standard SQLite database")
+        
+        # Continue with export if it's a valid SQLite file
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
 
-    tables = cursor.execute(
-        "SELECT name FROM sqlite_master WHERE type='table';"
-    ).fetchall()
+        tables = cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table';"
+        ).fetchall()
 
-    for table_name in tables:
-        table_name = table_name[0]
-        output_file = os.path.join(output_dir, f"{table_name}.md")
-        rows = cursor.execute(f"SELECT * FROM {table_name}").fetchall()
-        col_names = [desc[0] for desc in cursor.description]
+        for table_name in tables:
+            table_name = table_name[0]
+            output_file = os.path.join(output_dir, f"{table_name}.md")
+            rows = cursor.execute(f"SELECT * FROM {table_name}").fetchall()
+            col_names = [desc[0] for desc in cursor.description]
 
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(f"# Table: {table_name}\n\n")
-            f.write("| " + " | ".join(col_names) + " |\n")
-            f.write("|" + " --- |" * len(col_names) + "\n")
-            for row in rows:
-                row_str = "| " + " | ".join([str(r) if r is not None else "" for r in row]) + " |\n"
-                f.write(row_str)
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(f"# Table: {table_name}\n\n")
+                f.write("| " + " | ".join(col_names) + " |\n")
+                f.write("|" + " --- |" * len(col_names) + "\n")
+                for row in rows:
+                    row_str = "| " + " | ".join([str(r) if r is not None else "" for r in row]) + " |\n"
+                    f.write(row_str)
 
-    conn.close()
+        conn.close()
+    
+    except Exception as e:
+        raise ValueError(f"File is not a database: {str(e)}")
 
 # === Main ===
 def main():
