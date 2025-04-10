@@ -34,32 +34,27 @@ def decrypt_crypt14(key_path, crypt_path, output_path):
     with open(crypt_path, 'rb') as f:
         data = f.read()
         
-    if len(data) < 67:  # Minimum size check (51 + 16)
+    if len(data) < 67:
         raise ValueError("File too small to be a valid WhatsApp database")
 
     # WhatsApp .crypt14 structure:
-    # [51 bytes header][16 bytes IV][encrypted data][16 bytes auth tag]
-    header = data[:51]
+    # [Header(67)][Encrypted SQLite data][Auth tag(16)]
     iv = data[51:67]
     encrypted = data[67:-16]
     auth_tag = data[-16:]
 
-    # Verify crypt14 header
-    if not header.startswith(b'SQLite format 3\x00'):
-        raise ValueError("Missing SQLite header in encrypted file")
-
     try:
+        # Decrypt the database
         cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
         decrypted = cipher.decrypt_and_verify(encrypted, auth_tag)
+        
+        # Verify decrypted data starts with SQLite header
+        if not decrypted.startswith(b'SQLite format 3\x00'):
+            raise ValueError("Decryption failed: Invalid database format")
         
         # Write decrypted database
         with open(output_path, 'wb') as out:
             out.write(decrypted)
-            
-        # Verify the decrypted file
-        with open(output_path, 'rb') as f:
-            if not f.read(16).startswith(b'SQLite format 3\x00'):
-                raise ValueError("Decrypted file is not a valid SQLite database")
                 
     except (ValueError, KeyError) as e:
         raise Exception(f"Decryption failed: {str(e)}")
