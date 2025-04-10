@@ -11,7 +11,7 @@ console = Console()
 KEY_PATH = "/storage/emulated/0/Android/data/com.whatsapp/files/key"
 CRYPT_FILE = "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases/msgstore.db.crypt14"
 OUTPUT_SQLITE = "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases/msgstore_decrypted.db"
-OUTPUT_MD_DIR = "/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases/markdown"
+OUTPUT_MD_DIR = os.path.expanduser("~/storage/shared/wadecryptor_output")
 
 os.makedirs(OUTPUT_MD_DIR, exist_ok=True)
 
