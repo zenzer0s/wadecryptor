@@ -33,28 +33,35 @@ def decrypt_crypt14(key_path, crypt_path, output_path):
 
     with open(crypt_path, 'rb') as f:
         data = f.read()
+        
+    if len(data) < 67:  # Minimum size check (51 + 16)
+        raise ValueError("File too small to be a valid WhatsApp database")
 
-    header_size = 51  # WhatsApp database header
-    iv = data[header_size:header_size + 16]  # 16 bytes IV
-    encrypted = data[header_size + 16:-16]    # Encrypted SQLite data
-    auth_tag = data[-16:]                     # Authentication tag
+    # WhatsApp .crypt14 structure:
+    # [51 bytes header][16 bytes IV][encrypted data][16 bytes auth tag]
+    header = data[:51]
+    iv = data[51:67]
+    encrypted = data[67:-16]
+    auth_tag = data[-16:]
 
-    cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+    # Verify crypt14 header
+    if not header.startswith(b'SQLite format 3\x00'):
+        raise ValueError("Missing SQLite header in encrypted file")
+
     try:
-        # Add header verification
-        if data[:4] != b'SQLi':  # Check for SQLite format after decryption
-            raise ValueError("Invalid WhatsApp database format")
-            
+        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
         decrypted = cipher.decrypt_and_verify(encrypted, auth_tag)
         
-        # Verify SQLite header in decrypted data
-        if decrypted[:16].startswith(b'SQLite format 3'):
-            with open(output_path, 'wb') as out:
-                out.write(decrypted)
-        else:
-            raise ValueError("Decrypted file is not a valid SQLite database")
+        # Write decrypted database
+        with open(output_path, 'wb') as out:
+            out.write(decrypted)
             
-    except ValueError as e:
+        # Verify the decrypted file
+        with open(output_path, 'rb') as f:
+            if not f.read(16).startswith(b'SQLite format 3\x00'):
+                raise ValueError("Decrypted file is not a valid SQLite database")
+                
+    except (ValueError, KeyError) as e:
         raise Exception(f"Decryption failed: {str(e)}")
 
 # === Convert Tables to Markdown ===
