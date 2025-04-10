@@ -28,8 +28,8 @@ if [ ! -f "$SCRIPT" ]; then
 fi
 
 # === Define paths ===
-KEY_SRC="/data/data/com.whatsapp/files/key"
-KEY_DEST="/storage/emulated/0/Android/data/com.whatsapp/files/key"
+KEY_SOURCE="/data/data/com.whatsapp/files/key"
+KEY_DEST="$(pwd)/key"
 
 DB_SRC="/data/data/com.whatsapp/databases/msgstore.db*"
 DB_DEST="/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Databases"
@@ -39,8 +39,8 @@ MARKDOWN_DIR="$DB_DEST/markdown"
 echo -e "${GREEN}🔐 Copying WhatsApp key...${NC}"
 
 if [ ! -f "$KEY_DEST" ]; then
-  su -c "cp $KEY_SRC $KEY_DEST && chmod 644 $KEY_DEST"
-  [ -f "$KEY_DEST" ] && echo -e "${GREEN}✅ Key copied!${NC}" || { echo -e "${RED}❌ Failed to copy key.${NC}"; exit 1; }
+  su -c "dd if='$KEY_SOURCE' of='$KEY_DEST' bs=1 count=32 status=none"
+  [ -f "$KEY_DEST" ] && echo -e "${GREEN}✅ Key extracted!${NC}" || { echo -e "${RED}❌ Failed to extract key.${NC}"; exit 1; }
 else
   echo -e "${GREEN}✅ Key already exists.${NC}"
 fi
